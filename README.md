@@ -1,151 +1,104 @@
-# Scanly
+# Scanly (Windows-native edition)
 
-![Scanly Banner](https://i.imgur.com/nUa5M6m.png)
+Scanly is a lightweight helper that keeps a Real-Debrid/Zurg + rclone workflow tidy on Windows. It watches the messy download drive (`R:\__all__`), looks up clean titles on TMDB, and builds Jellyfin-ready libraries under `C:\zurgrclone\libraries` using symlinks. Drop files into the mount and they appear inside your Movies/Shows folders a few seconds later.
 
-[![wakatime](https://wakatime.com/badge/github/amcgready/Scanly.svg)](https://wakatime.com/badge/github/amcgready/Scanly)
+## What it does
 
-**Version:** 1.5.0  
-**Last Updated:** 2025-07-22
-**NOTICE: As of 2025-06-24, Docker deployment is not complete or recommended. It is recommended to run the script (main.py) on it's own**
----
+- Monitors the source drive and re-scans every 30 seconds (configurable).
+- Detects whether a file is a movie or TV episode by filename patterns (SxxEyy, 1x01, etc.).
+- Queries TMDB for the canonical title and release year.
+- Creates the directory structure Jellyfin expects:
+  - Movies → `Movie Name (Year)/Movie Name (Year).ext`
+  - Shows → `Show Name/Season 01/Show Name (S01E01) (Year).ext`
+- Uses Windows file symlinks so only one copy of the data lives on the rclone mount.
 
-## What is Scanly?
+Everything else from the previous project (TUI, Discord/Plex hooks, Docker, resume files, etc.) has been removed so Scanly focuses entirely on this flow.
 
-**Scanly** is a powerful media file organization tool that scans, categorizes, and organizes your media library. It supports movies, TV shows, anime, and more, using symlinks or hardlinks and integrates with The Movie Database (TMDB) for accurate metadata.
+## Requirements
 
----
-
-## Features
-
-- **Media Organization:** Scans directories for media files and organizes them using symlinks or hardlinks.
-- **Metadata Integration:** Fetches accurate metadata for TV shows and movies using the TMDB API.
-- **Content Type Detection:** Automatically detects and separates movies, TV, anime, and more.
-- **Customizable Structure:** Supports custom folder structures and resolution-based organization.
-- **Anime Separation:** Detects and organizes anime content separately.
-- **Resume & Skipped Items:** Tracks scan progress and skipped items for reliable, resumable operations.
-- **Plex Integration:** Supports Plex library refreshes after organizing media.
-- **Discord Notifications:** Sends notifications to Discord via webhooks for key events.
-- **Monitoring:** Watches directories for new files and auto-processes them.
-- **Scanner Lists:** Maintains and manages lists of known media for fast matching.
-- **Docker Support:** Easily run Scanly in a containerized environment.
-
----
+- Windows 10/11 with Python 3.10+
+- rclone mount that exposes the Zurg WebDAV (e.g. `R:\__all__`)
+- TMDB API key (free account)
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.6 or higher
-- Git
-
-### Standard Installation
-
-```bash
+```powershell
+# Clone and set up a virtual environment
 git clone https://github.com/amcgready/Scanly.git
 cd Scanly
-python -m venv venv
-source venv/bin/activate
+py -m venv .venv
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Docker Installation
-
-1. Copy `.env.template` to `.env` and edit your settings.
-2. Build and run with Docker Compose:
-
-```bash
-docker compose up --build
-```
-
-Or use the provided `simple-compose.yml` for a minimal setup.
-
----
-
 ## Configuration
 
-Edit the `.env` file to set your API keys and preferences:
+Edit `.env` (already committed with sensible defaults):
 
 ```ini
-TMDB_API_KEY=your_tmdb_api_key_here
-DESTINATION_DIRECTORY=/mnt/Scanly
-LINK_TYPE=symlink  # or hardlink
-RELATIVE_SYMLINK=false
-# ...other options...
+TMDB_API_KEY=your_tmdb_key
+SOURCE_DIR=R:\__all__
+DESTINATION_MOVIES=C:\zurgrclone\libraries\Movies
+DESTINATION_SHOWS=C:\zurgrclone\libraries\Shows
+SCAN_INTERVAL_SECONDS=30
+ALLOWED_EXTENSIONS=.mp4,.mkv,.srt,.avi,.mov,.divx,.m4v,.ts,.wmv
+RENAME_TAGS=...long regex for release junk...
+RENAME_REPLACEMENTS=\.|_|- => " "
 ```
 
-See `.env.template` for all available options.
+Adjust `SCAN_INTERVAL_SECONDS` if you want a longer or shorter delay between passes. When changing paths, keep them as absolute Windows paths.
 
----
+## Running Scanly
 
-## Usage
+### Continuous monitor (recommended)
 
-### Command Line
-
-```bash
-python src/main.py --scan /path/to/media
-python src/main.py --monitor /path/to/watch
+```powershell
+# From the project root with the virtual environment activated
+python -m scanly.main
 ```
 
-**Common CLI options:**
-- `--scan` / `-s`: Scan a directory
-- `--monitor` / `-w`: Monitor a directory for changes
-- `--movie` / `-m`: Process as movie
-- `--tv` / `-t`: Process as TV show
-- `--debug` / `-d`: Enable debug mode
+Scanly will run indefinitely, waking every 30 seconds to look for new or updated files in `SOURCE_DIR`. Logs print to the console; schedule the command with Windows Task Scheduler to run at startup or on a timer.
 
-### Docker
+If the rclone drive is not mounted when Scanly starts, it will stay alive and retry until the source path becomes available.
 
-Mount your media and library directories as volumes:
+### One-off sweep
 
-```yaml
-services:
-  scanly:
-    build: .
-    environment:
-      - TMDB_API_KEY=your_tmdb_api_key_here
-      - DESTINATION_DIRECTORY=/media/library
-    volumes:
-      - ./logs:/app/logs
-      - ./data:/app/data
-      - /path/to/your/media:/media/source:ro
-      - /path/to/your/library:/media/library
+```powershell
+python -m scanly.main --once
 ```
 
----
+Runs a single pass over the source directory and exits. Useful after adjusting configuration.
 
-## Scanner Lists
+## Scheduling as a Windows task
 
-Scanly uses scanner lists to match and organize known media. These are stored as JSON files in `data/` (e.g., `movie_scanner.json`, `tv_scanner.json`). You can edit these lists to add or remove entries.
+1. Open **Task Scheduler** → **Create Basic Task**.
+2. Trigger: **At startup** (or any schedule you prefer).
+3. Action: **Start a program**.
+   - Program/script: `C:\Path\To\Python\python.exe`
+   - Add arguments: `-m scanly.main`
+   - Start in: `C:\Path\To\Scanly`
+4. Enable **Run with highest privileges** so Windows allows symlink creation.
 
----
+## How matching works
 
-## Advanced Features
+1. File name is normalised (dots/underscores to spaces) and release tags are removed via `RENAME_TAGS`.
+2. `SxxEyy` or `1x01` patterns mark the file as a TV episode; otherwise it is treated as a movie.
+3. TMDB is queried for the cleaned title (year hints help choose the right result).
+4. The destination folder and filename are built using the TMDB title/year.
+5. A symlink is created. If the link already exists it is replaced.
 
-- **Plex Integration:** Set `PLEX_URL` and `PLEX_TOKEN` in your `.env` to enable automatic Plex library refreshes.
-- **Discord Webhooks:** Set `DISCORD_WEBHOOK_URL` to receive notifications for new links, deletions, and repairs.
-- **Monitoring:** Enable directory monitoring for automatic processing of new files.
-- **Custom Folder Structure:** Adjust folder names and resolution-based organization in your `.env`.
+If TMDB has no result, Scanly falls back to the cleaned local title/year so files still flow through.
 
----
+## Data directory
+
+`data/processed_files.json` keeps a light cache of modification times so previously-linked files are skipped until they change. Delete this file to force a full rebuild of symlinks.
 
 ## Troubleshooting
 
-- Check logs in the `logs/` directory for errors.
-- Ensure your API keys are valid and set in `.env`.
-- For Docker, ensure volumes are mounted with correct permissions.
-
----
-
-## Contributing
-
-Pull requests and issues are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
+- **Symlink permission errors**: Run the scheduled task with administrative privileges or enable Developer Mode in Windows Settings.
+- **TMDB failures**: Check your API key and network connectivity. Scanly falls back to local naming but logs a warning.
+- **Files not moving**: Ensure the extension is listed in `ALLOWED_EXTENSIONS` and that the filename contains enough information to detect movie vs. TV episode.
 
 ## License
 
-This project is licensed under the MIT License.
-
----
-
-**Scanly** — Effortless media organization for your entire library.
+MIT License. See `LICENSE` for details.
