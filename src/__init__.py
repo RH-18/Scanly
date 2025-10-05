@@ -1,1 +1,1 @@
-# Makes src a Python package
+"""Scanly package."""

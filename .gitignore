@@ -1,5 +1,4 @@
 # Environment variables
-.env
 .env.local
 .env.development.local
 .env.test.local
@@ -104,6 +103,7 @@ dmypy.json
 # Logs
 logs/
 *.log
+data/processed_files.json
 
 # IDE
 .vscode/
