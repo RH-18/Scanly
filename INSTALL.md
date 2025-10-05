@@ -1,76 +1,56 @@
-# Installation Guide for Scanly
+# Installing Scanly on Windows
 
 ## Prerequisites
 
-- Python 3.6 or higher
-- Git (for cloning the repository)
+- Windows 10/11
+- Python 3.10 or newer available on the PATH
+- Git (optional but recommended)
 
-## Method 1: Standard Installation
+## 1. Clone and set up the environment
 
-### Step 1: Clone the repository
-```bash
+```powershell
 git clone https://github.com/amcgready/Scanly.git
 cd Scanly
-```
-
-### Step 2: Create a virtual environment (recommended)
-```bash
-# Create a virtual environment
-python -m venv venv
-
-# Activate the virtual environment
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-```
-
-### Step 3: Install dependencies
-```bash
+py -m venv .venv
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Step 4: Configure Environment Variables
-Copy the template configuration file and edit it with your settings:
-```bash
-cp .env.template .env
+## 2. Configure credentials and paths
+
+The repository ships with a ready-to-edit `.env`. Update the values to match your setup:
+
+```ini
+TMDB_API_KEY=your_tmdb_key
+SOURCE_DIR=R:\__all__
+DESTINATION_MOVIES=C:\zurgrclone\libraries\Movies
+DESTINATION_SHOWS=C:\zurgrclone\libraries\Shows
+SCAN_INTERVAL_SECONDS=30
 ```
 
-Open the `.env` file and set your TMDB API key and other configuration options.
+Keep the paths absolute and make sure the destination drive allows symlink creation (run Task Scheduler jobs with elevated permissions or enable Windows Developer Mode).
 
-### Step 5: Start Scanly
-You can start both the main application and web UI using our launcher script:
-```bash
-python src/main.py
+## 3. Run Scanly
+
+```powershell
+python -m src.main
 ```
 
-## Method 2: Installation from PyPI (Coming Soon)
-```bash
-pip install scanly
-```
+Scanly will stay active until you close the window. To run a one-off sweep use `python -m src.main --once`.
 
-## Method 3: Docker Installation
+## 4. Schedule it (optional)
 
-### Step 1: Create a docker-compose file
-Use the provided `docker-compose.yml` file or create your own.
+Use **Task Scheduler → Create Basic Task** with:
 
-### Step 2: Configure environment variables
-Create a `.env` file as described in Step 4 above.
+- **Program/script**: `C:\Path\To\Python\python.exe`
+- **Add arguments**: `-m src.main`
+- **Start in**: path to the Scanly repository
+- **Run with highest privileges**: enabled
 
-### Step 3: Start the Docker container
-```bash
-docker-compose up -d
-```
+This starts Scanly automatically at boot and keeps Jellyfin libraries in sync with your rclone mount.
 
 ## Troubleshooting
 
-### Common Issues
-
-1. **TMDB API Key errors**
-   Make sure you've set a valid TMDB API key in your `.env` file.
-
-2. **Permission issues**
-   Ensure that the application has appropriate permissions to read/write to your media directories.
-
-### Getting Help
-If you encounter any issues, please check the logs in the `logs` directory or open an issue on GitHub.
+- **Symlink creation failed** – run the task with administrator privileges or enable Developer Mode in Windows settings.
+- **Files ignored** – confirm the extension is listed in `ALLOWED_EXTENSIONS` and the filename includes movie/year or TV episode markers.
+- **TMDB API errors** – verify your key and internet connectivity. Scanly falls back to local naming when TMDB is unavailable.
