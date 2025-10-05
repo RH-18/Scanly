@@ -1,71 +1,122 @@
-"""
-Configuration module for Scanly.
-
-This module handles configuration settings for the application.
-"""
+"""Configuration utilities for the streamlined Scanly worker."""
+from __future__ import annotations
 
 import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List, Tuple
+
 from dotenv import load_dotenv
 
-# Ensure .env file is loaded
 load_dotenv()
 
-def get_settings():
-    """Get all application settings."""
-    settings = {
-        # Default settings
-        'LOG_LEVEL': os.environ.get('LOG_LEVEL', 'INFO'),
-        'DESTINATION_DIRECTORY': os.environ.get('DESTINATION_DIRECTORY', ''),
-        'TMDB_API_KEY': os.environ.get('TMDB_API_KEY', ''),
-        'MONITOR_SCAN_INTERVAL': os.environ.get('MONITOR_SCAN_INTERVAL', '60'),
-        'MONITOR_AUTO_PROCESS': os.environ.get('MONITOR_AUTO_PROCESS', 'false'),
-    }
-    
-    return settings
 
-def get_monitor_settings():
-    """Get monitoring-specific settings."""
-    settings = get_settings()
-    
-    # Extract only monitor-related settings
-    monitor_settings = {k: v for k, v in settings.items() if k.startswith('MONITOR_')}
-    
-    return monitor_settings
+def _parse_extensions(raw: str) -> List[str]:
+    return [ext.strip().lower() for ext in raw.split(",") if ext.strip()]
 
-def _update_env_var(name, value):
-    """Update an environment variable both in memory and in .env file."""
-    # Update in memory
-    os.environ[name] = value
-    
-    # Update in .env file
-    try:
-        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-        
-        # Read existing content
-        if os.path.exists(env_path):
-            with open(env_path, 'r') as f:
-                lines = f.readlines()
-        else:
-            lines = []
-        
-        # Check if the variable already exists in the file
-        var_exists = False
-        for i, line in enumerate(lines):
-            if line.strip().startswith(f"{name}="):
-                lines[i] = f"{name}={value}\n"
-                var_exists = True
-                break
-        
-        # Add the variable if it doesn't exist
-        if not var_exists:
-            lines.append(f"{name}={value}\n")
-        
-        # Write the updated content back to the file
-        with open(env_path, 'w') as f:
-            f.writelines(lines)
-        
-        return True
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Error updating environment variable: {e}")
-        return False
+
+def _parse_replacements(raw: str) -> List[Tuple[re.Pattern[str], str]]:
+    rules: List[Tuple[re.Pattern[str], str]] = []
+    if not raw:
+        return rules
+    # Allow either a single mapping "pattern => replacement" or a semicolon separated list.
+    for chunk in raw.split(";"):
+        if "=>" not in chunk:
+            continue
+        pattern, replacement = chunk.split("=>", 1)
+        pattern = pattern.strip()
+        replacement = replacement.strip().strip('"').strip("'")
+        if not pattern:
+            continue
+        rules.append((re.compile(pattern), replacement))
+    return rules
+
+
+@dataclass
+class Config:
+    source_dir: Path
+    movies_dir: Path
+    shows_dir: Path
+    allowed_extensions: List[str]
+    tmdb_api_key: str
+    scan_interval: int = 30
+    rename_pattern: re.Pattern[str] | None = None
+    rename_replacements: List[Tuple[re.Pattern[str], str]] = field(default_factory=list)
+    state_file: Path = Path("data/processed_files.json")
+
+    @classmethod
+    def from_env(cls) -> "Config":
+        tmdb_key = os.getenv("TMDB_API_KEY", "").strip()
+        if not tmdb_key:
+            raise ValueError("TMDB_API_KEY must be set in the environment or .env file")
+
+        source_dir = Path(os.getenv("SOURCE_DIR", "").strip()).expanduser()
+        if not source_dir:
+            raise ValueError("SOURCE_DIR must be provided in the environment")
+
+        movies_dir_raw = os.getenv("DESTINATION_MOVIES")
+        shows_dir_raw = os.getenv("DESTINATION_SHOWS")
+        if not movies_dir_raw or not shows_dir_raw:
+            base_dest = os.getenv("DESTINATION_DIRECTORY", "").strip()
+            if not base_dest:
+                raise ValueError(
+                    "DESTINATION_MOVIES/DESTINATION_SHOWS or DESTINATION_DIRECTORY must be configured"
+                )
+            movies_dir_raw = os.path.join(base_dest, os.getenv("CUSTOM_MOVIE_FOLDER", "Movies"))
+            shows_dir_raw = os.path.join(base_dest, os.getenv("CUSTOM_SHOW_FOLDER", "Shows"))
+
+        movies_dir = Path(movies_dir_raw).expanduser()
+        shows_dir = Path(shows_dir_raw).expanduser()
+
+        interval = int(os.getenv("SCAN_INTERVAL_SECONDS", os.getenv("MONITOR_SCAN_INTERVAL", "30")))
+
+        extensions = _parse_extensions(
+            os.getenv(
+                "ALLOWED_EXTENSIONS",
+                ".mp4,.mkv,.srt,.avi,.mov,.divx,.m4v,.ts,.wmv",
+            )
+        )
+
+        rename_tags = os.getenv("RENAME_TAGS", "").strip()
+        rename_pattern = re.compile(rename_tags, re.IGNORECASE) if rename_tags else None
+        replacements = _parse_replacements(os.getenv("RENAME_REPLACEMENTS", r"\.|_|- => \" \""))
+
+        state_file = Path(os.getenv("STATE_FILE", "data/processed_files.json")).expanduser()
+
+        return cls(
+            source_dir=source_dir,
+            movies_dir=movies_dir,
+            shows_dir=shows_dir,
+            allowed_extensions=extensions,
+            tmdb_api_key=tmdb_key,
+            scan_interval=interval,
+            rename_pattern=rename_pattern,
+            rename_replacements=replacements,
+            state_file=state_file,
+        )
+
+    def ensure_directories(self) -> None:
+        if not self.source_dir.exists():
+            raise FileNotFoundError(f"Source directory does not exist: {self.source_dir}")
+        self.movies_dir.mkdir(parents=True, exist_ok=True)
+        self.shows_dir.mkdir(parents=True, exist_ok=True)
+        if self.state_file.parent:
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def is_supported(self, path: Path) -> bool:
+        return path.suffix.lower() in self.allowed_extensions
+
+    def apply_replacements(self, text: str) -> str:
+        updated = text
+        for pattern, replacement in self.rename_replacements:
+            updated = pattern.sub(replacement, updated)
+        return updated
+
+    def strip_release_tags(self, text: str) -> str:
+        if self.rename_pattern is None:
+            return text
+        return self.rename_pattern.sub(" ", text)
+
+
+__all__ = ["Config"]
