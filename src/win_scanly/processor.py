@@ -86,8 +86,12 @@ def process_file(
     season_hint = ai_data.get("season_hint")
     episode_hint = ai_data.get("episode_hint")
 
+    # Normalise folder name so similarity evaluation can consider it
+    folder_hint = path.parent.name.replace(".", " ").replace("_", " ")
+
     movie_result = tmdb.search_movie(guess, year_hint)
-    show_result = tmdb.search_show(guess, year_hint)
+    show_query = primary_title if primary_title else guess
+    show_result = tmdb.search_show(show_query, year_hint)
     best_result = None
     best_type = None
     similarity_info = None
@@ -104,7 +108,7 @@ def process_file(
             _safe_str(show_result.title),
             query_year=year_hint,
             candidate_year=show_result.year,
-            folder_hint=_safe_str(path.parent.name),
+            folder_hint=_safe_str(folder_hint),
         )
         if sim_movie["score"] >= sim_show["score"]:
             best_result, best_type, similarity_info = movie_result, "movie", sim_movie
@@ -125,7 +129,7 @@ def process_file(
             _safe_str(show_result.title),
             query_year=year_hint,
             candidate_year=show_result.year,
-            folder_hint=_safe_str(path.parent.name),
+            folder_hint=_safe_str(folder_hint),
         )
 
     if not best_result or not similarity_info or not similarity_info["accepted"]:

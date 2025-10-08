@@ -86,7 +86,7 @@ class TMDBClient:
             params["year"] = year_hint
         data = self._get("search/movie", params)
         results = data.get("results") or []
-        return self._rank_candidates(query, results, "movie")
+        return self._rank_candidates(query, results, "movie", year_hint)
 
     def search_show(self, query: str, year_hint: Optional[int] = None) -> Optional[TMDBResult]:
         params = {
@@ -99,10 +99,14 @@ class TMDBClient:
             params["first_air_date_year"] = year_hint
         data = self._get("search/tv", params)
         results = data.get("results") or []
-        return self._rank_candidates(query, results, "tv")
+        return self._rank_candidates(query, results, "tv", year_hint)
 
     def _rank_candidates(
-        self, query: str, results: List[Dict[str, Any]], media_type: str
+        self,
+        query: str,
+        results: List[Dict[str, Any]],
+        media_type: str,
+        year_hint: Optional[int] = None,
     ) -> Optional[TMDBResult]:
         if not results:
             return None
@@ -115,7 +119,7 @@ class TMDBClient:
             similarity = evaluate_match(
                 self._safe_str(query),
                 title,
-                query_year=year,
+                query_year=year_hint,
                 candidate_year=year,
             )
             ranked.append(
