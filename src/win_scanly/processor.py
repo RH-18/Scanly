@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -23,6 +24,17 @@ def _safe_str(value):
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
     return str(value) if value is not None else ""
+
+
+def _normalise_title_token(token: Optional[str]) -> str:
+    if not token:
+        return ""
+    text = _safe_str(token)
+    # Replace common separators (dots/underscores) with spaces and collapse
+    # repeated whitespace so the string is suitable for querying TMDB.
+    text = re.sub(r"[._]+", " ", text)
+    text = " ".join(text.split())
+    return text
 
 
 def load_state(path: Path) -> Dict[str, float]:
@@ -78,15 +90,22 @@ def process_file(
 
     guess = _safe_str(ai_data.get("sanitised_guess", path.stem))
     title_tokens = ai_data.get("title_tokens")
-    if isinstance(title_tokens, list) and title_tokens:
-        primary_title = _safe_str(title_tokens[0])
-    else:
-        primary_title = guess
+    primary_title = ""
+    if isinstance(title_tokens, list):
+        for token in title_tokens:
+            if isinstance(token, str) and token.strip():
+                primary_title = _normalise_title_token(token)
+                if primary_title:
+                    break
+    if not primary_title:
+        primary_title = _normalise_title_token(guess) or guess
     year_hint = ai_data.get("year_hint")
     season_hint = ai_data.get("season_hint")
     episode_hint = ai_data.get("episode_hint")
 
-    # Normalise folder name so similarity evaluation can consider it
+    # The parent folder often mirrors the canonical series title but may use
+    # dots/underscores as separators.  Normalise those characters so the
+    # similarity evaluator can reward folder/title agreement.
     folder_hint = path.parent.name.replace(".", " ").replace("_", " ")
 
     movie_result = tmdb.search_movie(guess, year_hint)
