@@ -15,9 +15,14 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 # Load .env either from project root or current working directory.
-_ENV_PATH_CANDIDATES: Tuple[Path, ...] = (
-    Path(__file__).resolve().parents[2] / ".env",
-    Path.cwd() / ".env",
+_ENV_PATH_CANDIDATES: Tuple[Path, ...] = tuple(
+    dict.fromkeys(
+        (
+            Path(__file__).resolve().with_name(".env"),
+            Path(__file__).resolve().parents[2] / ".env",
+            Path.cwd() / ".env",
+        )
+    )
 )
 for candidate in _ENV_PATH_CANDIDATES:
     if candidate.exists():
