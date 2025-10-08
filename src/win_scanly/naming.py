@@ -53,7 +53,7 @@ def build_destination(source: Path, candidate: MediaCandidate, tmdb_data, config
     if not getattr(tmdb_data, "title", None):
         unmatched_dir = getattr(config, "unmatched_dir", Path.cwd() / "_Unmatched")
         destination = unmatched_dir / source.name
-        logger.debug("⚠️ Unmatched canonical name for %s, using fallback path.", source.name)
+        logger.warning("⚠️ Unmatched canonical name, using fallback path for %s", source.name)
         return DestinationPlan(
             source=source,
             destination=destination,
@@ -67,7 +67,7 @@ def build_destination(source: Path, candidate: MediaCandidate, tmdb_data, config
         dest_dir = config.movies_dir / folder_name
         destination = dest_dir / file_name
         canonical = folder_name
-    elif candidate.media_type == "show":
+    elif candidate.media_type in {"show", "anime"}:
         season_dir = _format_season(candidate.season)
         sxxexx = _format_episode(candidate.season, candidate.episode)
         base_name = f"{clean_title} ({year})" if year else clean_title

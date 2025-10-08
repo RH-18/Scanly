@@ -46,6 +46,8 @@ class Config:
     ai_model: str
     ai_timeout: int
     ollama_path: str
+    imdb_db_path: Path
+    embedding_enabled: bool
 
     @staticmethod
     def from_env() -> "Config":
@@ -121,6 +123,13 @@ class Config:
             ai_model=os.getenv("AI_MODEL", "gemma2:2b").strip(),
             ai_timeout=int(os.getenv("AI_TIMEOUT_SECONDS", "15")),
             ollama_path=os.getenv("OLLAMA_PATH", "ollama").strip(),
+            imdb_db_path=Path(
+                os.getenv(
+                    "IMDB_DB_PATH",
+                    r"C:\\zurgrclone\\datasets\\imdb\\imdb_cache.db",
+                )
+            ).expanduser(),
+            embedding_enabled=os.getenv("EMBEDDING_ENABLED", "true").lower() == "true",
         )
 
     def ensure_directories(self) -> None:
