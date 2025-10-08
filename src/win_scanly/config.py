@@ -124,9 +124,19 @@ class Config:
         )
 
     def ensure_directories(self) -> None:
-        """Ensure configured directories exist."""
+        """Ensure writable output directories exist without touching read-only sources."""
 
-        for directory in (self.source_dir, self.movies_dir, self.shows_dir, self.unmatched_dir):
+        # The source and fallback directories may be mounted read-only (e.g. rclone WebDAV).
+        # Avoid creating them, but warn if none of them currently exist.
+        readable_roots = [self.source_dir, *self.fallback_dirs]
+        if not any(path.exists() for path in readable_roots):
+            logger.warning(
+                "⚠️ No readable source directories found among: %s",
+                ", ".join(str(path) for path in readable_roots),
+            )
+
+        # Ensure destination and state directories exist.
+        for directory in (self.movies_dir, self.shows_dir, self.unmatched_dir):
             if not directory.exists():
                 logger.info("📁 Creating directory: %s", directory)
                 directory.mkdir(parents=True, exist_ok=True)
@@ -151,7 +161,6 @@ class Config:
 @lru_cache(maxsize=1)
 def get_config() -> Config:
     """Return a cached :class:`Config` instance."""
-
     return Config.from_env()
 
 
