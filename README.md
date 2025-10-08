@@ -93,6 +93,22 @@ python src/main.py --monitor /path/to/watch
 - `--tv` / `-t`: Process as TV show
 - `--debug` / `-d`: Enable debug mode
 
+### Windows-focused pipeline
+
+The new Windows-native pipeline lives under `src/win_scanly`. It is designed for local usage with Ollama-backed filename parsing and TMDB matching.
+
+1. Install the dependencies listed in `requirements.txt`, plus [`ffprobe`](https://ffmpeg.org/ffprobe.html) for duration checks and [Ollama](https://ollama.com) if you want AI-assisted filename parsing.
+2. Ensure the destination folders (movies, shows, unmatched) exist, or let the app create them on first run.
+3. Provide a `TMDB_API_KEY` in your environment or `.env`; optional overrides such as `SOURCE_DIR`, `DEST_MOVIES_DIR`, and `AI_*` settings are documented in the code defaults.
+
+Run a one-off scan (dry run supported) with:
+
+```bash
+python -m win_scanly.main --once --dry-run
+```
+
+Drop the `--dry-run` flag or pass `--daemon --interval 120` for continuous monitoring. The processor caches file modification times in `data/state.json` and writes any unmatched files to the configured `_Unmatched` directory as JSON sidecars.
+
 ### Docker
 
 Mount your media and library directories as volumes:
