@@ -86,9 +86,7 @@ def process_file(
     season_hint = ai_data.get("season_hint")
     episode_hint = ai_data.get("episode_hint")
 
-    # The parent folder often mirrors the canonical series title but may use
-    # dots/underscores as separators.  Normalise those characters so the
-    # similarity evaluator can reward folder/title agreement.
+    # Normalise folder name so similarity evaluation can consider it
     folder_hint = path.parent.name.replace(".", " ").replace("_", " ")
 
     movie_result = tmdb.search_movie(guess, year_hint)
