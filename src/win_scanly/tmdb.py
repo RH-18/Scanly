@@ -7,7 +7,7 @@ import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -38,11 +38,31 @@ class TMDBClient:
         if not self.api_key:
             logger.warning("⚠️ TMDB API key missing — searches will fail.")
 
-    @lru_cache(maxsize=256)
     def _get(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Fetch data from TMDB with simple memoisation.
+
+        ``functools.lru_cache`` requires hashable arguments, but ``dict``
+        instances are not hashable.  The Windows scanner previously attempted to
+        decorate this method directly which resulted in ``TypeError: unhashable
+        type: 'dict'`` when processing files.  To retain caching we normalise
+        the parameters into a tuple before delegating to the cached helper.
+        """
+
+        params = dict(params)
+        params["api_key"] = self.api_key
+        cache_key: Tuple[str, Tuple[Tuple[str, Any], ...]] = (
+            endpoint,
+            tuple(sorted(params.items())),
+        )
+        return self._cached_get(cache_key)
+
+    @lru_cache(maxsize=256)
+    def _cached_get(
+        self, cache_key: Tuple[str, Tuple[Tuple[str, Any], ...]]
+    ) -> Dict[str, Any]:
+        endpoint, params_items = cache_key
+        params = dict(params_items)
         try:
-            params = dict(params)
-            params["api_key"] = self.api_key
             response = requests.get(
                 f"{TMDB_BASE_URL}/{endpoint}",
                 params=params,
@@ -66,7 +86,7 @@ class TMDBClient:
             params["year"] = year_hint
         data = self._get("search/movie", params)
         results = data.get("results") or []
-        return self._rank_candidates(query, results, "movie")
+        return self._rank_candidates(query, results, "movie", year_hint)
 
     def search_show(self, query: str, year_hint: Optional[int] = None) -> Optional[TMDBResult]:
         params = {
@@ -79,10 +99,14 @@ class TMDBClient:
             params["first_air_date_year"] = year_hint
         data = self._get("search/tv", params)
         results = data.get("results") or []
-        return self._rank_candidates(query, results, "tv")
+        return self._rank_candidates(query, results, "tv", year_hint)
 
     def _rank_candidates(
-        self, query: str, results: List[Dict[str, Any]], media_type: str
+        self,
+        query: str,
+        results: List[Dict[str, Any]],
+        media_type: str,
+        year_hint: Optional[int] = None,
     ) -> Optional[TMDBResult]:
         if not results:
             return None
@@ -95,7 +119,7 @@ class TMDBClient:
             similarity = evaluate_match(
                 self._safe_str(query),
                 title,
-                query_year=year,
+                query_year=year_hint,
                 candidate_year=year,
             )
             ranked.append(

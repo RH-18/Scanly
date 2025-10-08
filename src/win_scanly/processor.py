@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -23,6 +24,17 @@ def _safe_str(value):
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
     return str(value) if value is not None else ""
+
+
+def _normalise_title_token(token: Optional[str]) -> str:
+    if not token:
+        return ""
+    text = _safe_str(token)
+    # Replace common separators (dots/underscores) with spaces and collapse
+    # repeated whitespace so the string is suitable for querying TMDB.
+    text = re.sub(r"[._]+", " ", text)
+    text = " ".join(text.split())
+    return text
 
 
 def load_state(path: Path) -> Dict[str, float]:
@@ -77,12 +89,28 @@ def process_file(
         ai_data = {"raw": path.name, "sanitised_guess": path.stem}
 
     guess = _safe_str(ai_data.get("sanitised_guess", path.stem))
+    title_tokens = ai_data.get("title_tokens")
+    primary_title = ""
+    if isinstance(title_tokens, list):
+        for token in title_tokens:
+            if isinstance(token, str) and token.strip():
+                primary_title = _normalise_title_token(token)
+                if primary_title:
+                    break
+    if not primary_title:
+        primary_title = _normalise_title_token(guess) or guess
     year_hint = ai_data.get("year_hint")
     season_hint = ai_data.get("season_hint")
     episode_hint = ai_data.get("episode_hint")
 
+    # The parent folder often mirrors the canonical series title but may use
+    # dots/underscores as separators.  Normalise those characters so the
+    # similarity evaluator can reward folder/title agreement.
+    folder_hint = path.parent.name.replace(".", " ").replace("_", " ")
+
     movie_result = tmdb.search_movie(guess, year_hint)
-    show_result = tmdb.search_show(guess, year_hint)
+    show_query = primary_title if primary_title else guess
+    show_result = tmdb.search_show(show_query, year_hint)
     best_result = None
     best_type = None
     similarity_info = None
@@ -95,10 +123,11 @@ def process_file(
             candidate_year=movie_result.year,
         )
         sim_show = evaluate_match(
-            guess,
+            primary_title,
             _safe_str(show_result.title),
             query_year=year_hint,
             candidate_year=show_result.year,
+            folder_hint=_safe_str(folder_hint),
         )
         if sim_movie["score"] >= sim_show["score"]:
             best_result, best_type, similarity_info = movie_result, "movie", sim_movie
@@ -115,10 +144,11 @@ def process_file(
     elif show_result:
         best_result, best_type = show_result, "show"
         similarity_info = evaluate_match(
-            guess,
+            primary_title,
             _safe_str(show_result.title),
             query_year=year_hint,
             candidate_year=show_result.year,
+            folder_hint=_safe_str(folder_hint),
         )
 
     if not best_result or not similarity_info or not similarity_info["accepted"]:
