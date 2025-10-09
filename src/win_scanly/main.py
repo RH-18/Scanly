@@ -3,6 +3,7 @@ from __future__ import annotations
 """Command-line entry point for the Windows pipeline."""
 
 import argparse
+import importlib
 import logging
 import os
 import sys
@@ -13,8 +14,31 @@ if __package__ in (None, ""):
     package_root = Path(__file__).resolve().parent
     sys.path.insert(0, str(package_root.parent))
 
-    from win_scanly.config import get_config  # type: ignore[import-not-found]
-    from win_scanly.processor import process_once, run_forever  # type: ignore[import-not-found]
+    package_name = package_root.name
+    try:
+        config_module = importlib.import_module(f"{package_name}.config")
+    except ImportError as exc:
+        raise ImportError(
+            f"Unable to import '{package_name}.config'. Ensure you are running the CLI from the"
+            " project root so the package can be discovered."
+        ) from exc
+
+    try:
+        processor_module = importlib.import_module(f"{package_name}.processor")
+    except ImportError as exc:
+        raise ImportError(
+            f"Unable to import '{package_name}.processor'. Ensure the package directory name"
+            " matches the module you are executing."
+        ) from exc
+
+    try:
+        get_config = getattr(config_module, "get_config")
+        process_once = getattr(processor_module, "process_once")
+        run_forever = getattr(processor_module, "run_forever")
+    except AttributeError as exc:
+        raise AttributeError(
+            "Required callables are missing from the configuration or processor modules."
+        ) from exc
 else:
     from .config import get_config
     from .processor import process_once, run_forever
