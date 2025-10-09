@@ -23,6 +23,17 @@ USE_AI = os.getenv("AI_ENABLED", "true").lower() == "true"
 AI_TIMEOUT = int(os.getenv("AI_TIMEOUT_SECONDS", "15"))
 
 _AI_LOCK = Lock()
+_AI_DISABLED_REASON: Optional[str] = None
+
+
+def _disable_ai(reason: str) -> None:
+    """Disable AI parsing for the remainder of the process."""
+
+    global USE_AI, _AI_DISABLED_REASON
+    USE_AI = False
+    if _AI_DISABLED_REASON is None:
+        _AI_DISABLED_REASON = reason
+        logger.warning("⚠️ Disabling AI parsing: %s", reason)
 
 
 def _is_ollama_running(host: str = "localhost", port: int = OLLAMA_PORT) -> bool:
@@ -65,7 +76,10 @@ def ai_parse_filename(filename: str, parent: str = "") -> Optional[Dict[str, obj
     """Ask the local LLM to parse filename hints for downstream processing."""
 
     if not USE_AI:
-        logger.debug("🤖 AI parsing disabled via configuration.")
+        if _AI_DISABLED_REASON:
+            logger.debug("🤖 AI parsing skipped: %s", _AI_DISABLED_REASON)
+        else:
+            logger.debug("🤖 AI parsing disabled via configuration.")
         return None
 
     if not _is_ollama_running() and not _start_ollama_service():
@@ -131,6 +145,13 @@ Parent folder: {parent}
             logger.warning("⚠️ Invalid JSON from AI for %s", filename)
         except requests.Timeout:
             logger.warning("⏱️ AI parsing timeout for %s", filename)
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response else "unknown"
+            _disable_ai(
+                f"HTTP {status_code} from Ollama endpoint while parsing '{filename}'"
+            )
+        except requests.ConnectionError:
+            _disable_ai("unable to reach Ollama service")
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.warning("⚠️ AI request failed for %s: %s", filename, exc)
 
