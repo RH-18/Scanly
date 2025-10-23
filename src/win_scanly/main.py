@@ -6,9 +6,18 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 
-from .config import get_config
-from .processor import process_once, run_forever
+
+if __package__ in (None, ""):
+    package_root = Path(__file__).resolve().parent
+    sys.path.insert(0, str(package_root.parent))
+
+    from win_scanly.config import get_config  # type: ignore[import-not-found]
+    from win_scanly.processor import process_once, run_forever  # type: ignore[import-not-found]
+else:
+    from .config import get_config
+    from .processor import process_once, run_forever
 
 
 def configure_logging(verbose: bool = False) -> None:
